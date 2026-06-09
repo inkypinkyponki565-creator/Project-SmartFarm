@@ -1,0 +1,267 @@
+#include <WiFi.h>
+#include <WebServer.h>
+
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
+
+#include <DHT.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+// ================= WIFI =================
+const char* ssid = "shanoar";
+const char* password = "12345678";
+
+// ================= PINS =================
+#define DHTPIN 4
+#define DHTTYPE DHT22
+
+#define PH_PIN 35
+#define ONE_WIRE_BUS 15
+#define BUZZER_PIN 27
+
+// ================= SENSORS =================
+DHT dht(DHTPIN, DHTTYPE);
+
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature waterSensor(&oneWire);
+
+// ================= OLED =================
+Adafruit_SH1106G display(128, 64, &Wire, -1);
+
+// ================= WEB SERVER =================
+WebServer server(80);
+
+// ================= GLOBAL VALUES =================
+float tempAir = 0;
+float humidity = 0;
+float waterTemp = 0;
+float phValue = 0;
+
+bool dhtError = false;
+bool waterError = false;
+
+// ================= BUZZER =================
+void beep(int times) {
+  for(int i=0;i<times;i++){
+    digitalWrite(BUZZER_PIN,HIGH);
+    delay(150);
+    digitalWrite(BUZZER_PIN,LOW);
+    delay(150);
+  }
+}
+
+// ================= READ PH =================
+float readPH() {
+  long sum = 0;
+  for(int i=0;i<20;i++){
+    sum += analogRead(PH_PIN);
+    delay(5);
+  }
+
+  int raw = sum/20;
+  float voltage = raw * (3.3 / 4095.0);
+
+  // calibration formula (adjust later with buffer solutions)
+  float ph = 7 + ((2.5 - voltage) / 0.18);
+
+  return ph;
+}
+
+// ================= UPDATE SENSOR DATA =================
+void updateSensors() {
+
+  humidity = dht.readHumidity();
+  tempAir = dht.readTemperature();
+
+  dhtError = isnan(humidity) || isnan(tempAir);
+
+  waterSensor.requestTemperatures();
+  waterTemp = waterSensor.getTempCByIndex(0);
+
+  waterError = (waterTemp == -127.0);
+
+  phValue = readPH();
+
+  // ERROR HANDLING
+  if(dhtError){
+    Serial.println("[ERROR] DHT22 FAIL");
+    beep(2);
+  }
+
+  if(waterError){
+    Serial.println("[ERROR] DS18B20 FAIL");
+    beep(2);
+  }
+}
+
+// ================= OLED =================
+void updateOLED() {
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SH110X_WHITE);
+
+  display.setCursor(0,0);
+  display.print("AIR: ");
+  if(dhtError) display.print("ERR");
+  else display.print(tempAir);
+
+  display.print("C");
+
+  display.setCursor(0,15);
+  display.print("HUM: ");
+  if(dhtError) display.print("ERR");
+  else display.print(humidity);
+
+  display.print("%");
+
+  display.setCursor(0,30);
+  display.print("pH: ");
+  display.print(phValue,2);
+
+  display.setCursor(0,45);
+  display.print("WATER: ");
+  if(waterError) display.print("ERR");
+  else display.print(waterTemp);
+
+  display.print("C");
+
+  display.display();
+}
+
+// ================= HTML DASHBOARD =================
+String getHTML() {
+
+  String status = "ALL OK";
+  String color = "#00ff88";
+
+  if(dhtError || waterError){
+    status = "SENSOR ERROR";
+    color = "#ff3b3b";
+  }
+
+  String html = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="5">
+
+<style>
+body {
+  background:#0f172a;
+  color:white;
+  font-family:Arial;
+  text-align:center;
+}
+
+.card {
+  background:#1e293b;
+  margin:10px;
+  padding:15px;
+  border-radius:12px;
+  box-shadow:0px 0px 10px #000;
+}
+
+h1 { color:#38bdf8; }
+
+.temp { color:#f97316; }
+.hum { color:#22c55e; }
+.ph { color:#a855f7; }
+.water { color:#06b6d4; }
+
+.status {
+  font-size:20px;
+  font-weight:bold;
+  color:)rawliteral" + color + R"rawliteral(;
+}
+</style>
+
+</head>
+
+<body>
+
+<h1>🌊 SMART WATER DASHBOARD</h1>
+
+<div class="card temp">
+🌡 Air Temperature: )rawliteral" + String(tempAir) + R"rawliteral( °C
+</div>
+
+<div class="card hum">
+💧 Humidity: )rawliteral" + String(humidity) + R"rawliteral( %
+</div>
+
+<div class="card ph">
+🧪 pH Value: )rawliteral" + String(phValue,2) + R"rawliteral(
+</div>
+
+<div class="card water">
+🌊 Water Temp: )rawliteral" + String(waterTemp) + R"rawliteral( °C
+</div>
+
+<div class="card status">
+Status: )rawliteral" + status + R"rawliteral(
+</div>
+
+</body>
+</html>
+)rawliteral";
+
+  return html;
+}
+
+// ================= HANDLE WEB =================
+void handleRoot() {
+  server.send(200, "text/html", getHTML());
+}
+
+// ================= SETUP =================
+void setup() {
+
+  Serial.begin(115200);
+
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN,LOW);
+
+  Wire.begin(21,22);
+
+  dht.begin();
+  waterSensor.begin();
+
+  display.begin(0x3C,true);
+
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setCursor(10,20);
+  display.println("BOOT");
+  display.display();
+
+  WiFi.begin(ssid,password);
+
+  Serial.print("Connecting WiFi");
+
+  while(WiFi.status() != WL_CONNECTED){
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nConnected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  server.on("/",handleRoot);
+  server.begin();
+}
+
+// ================= LOOP =================
+void loop() {
+
+  server.handleClient();
+
+  updateSensors();
+  updateOLED();
+
+  delay(2000);
+}
