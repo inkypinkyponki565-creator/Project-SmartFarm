@@ -1,0 +1,7 @@
+Open Arduino IDE → Library Manager and search install:
+Adafruit SH110X
+Adafruit GFX Library
+DHT sensor library
+Adafruit Unified Sensor
+OneWire
+DallasTemperature
