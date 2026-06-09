@@ -1,0 +1,26 @@
+#define PH_PIN 35
+
+void setup() {
+  Serial.begin(115200);
+}
+
+void loop() {
+
+  long sum = 0;
+
+  for(int i=0;i<20;i++){
+    sum += analogRead(PH_PIN);
+    delay(10);
+  }
+
+  int raw = sum/20;
+  float voltage = raw * (3.3 / 4095.0);
+
+  Serial.print("Raw: ");
+  Serial.print(raw);
+
+  Serial.print("  Voltage: ");
+  Serial.println(voltage,3);
+
+  delay(1000);
+}
