@@ -1,0 +1,24 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
+
+Adafruit_SH1106G display(128,64,&Wire,-1);
+
+void setup() {
+
+  Serial.begin(115200);
+  Wire.begin(21,22);
+
+  if(!display.begin(0x3C,true)){
+    Serial.println("OLED FAIL");
+    while(1);
+  }
+
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setCursor(10,20);
+  display.println("HELLO");
+  display.display();
+}
+
+void loop(){}
