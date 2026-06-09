@@ -1,0 +1,203 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
+#include <DHT.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+// ================= PINS =================
+#define DHTPIN 4
+#define DHTTYPE DHT22
+
+#define PH_PIN 35
+#define WATER_TEMP_PIN 15
+#define BUZZER_PIN 27
+
+// ================= OLED =================
+Adafruit_SH1106G display(128, 64, &Wire, -1);
+
+// ================= DHT22 =================
+DHT dht(DHTPIN, DHTTYPE);
+
+// ================= DS18B20 =================
+OneWire oneWire(WATER_TEMP_PIN);
+DallasTemperature waterSensor(&oneWire);
+
+unsigned long lastScreenSwitch = 0;
+bool page = false;
+
+void alarmBeep() {
+  for(int i = 0; i < 2; i++) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(150);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(150);
+  }
+}
+
+float readPH() {
+
+  long sum = 0;
+
+  for(int i = 0; i < 20; i++) {
+    sum += analogRead(PH_PIN);
+    delay(10);
+  }
+
+  int raw = sum / 20;
+
+  float voltage = raw * (3.3 / 4095.0);
+
+  // Adjust during calibration
+  float ph = 7 + ((2.5 - voltage) / 0.18);
+
+  return ph;
+}
+
+void setup() {
+
+  Serial.begin(115200);
+
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
+  Wire.begin(21,22);
+
+  dht.begin();
+  waterSensor.begin();
+
+  if(!display.begin(0x3C, true)) {
+    Serial.println("OLED FAIL");
+    while(1);
+  }
+
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setCursor(15,20);
+  display.println("START");
+  display.display();
+
+  Serial.println();
+  Serial.println("=======================");
+  Serial.println("ESP32 SENSOR SYSTEM");
+  Serial.println("=======================");
+
+  delay(2000);
+}
+
+void loop() {
+
+  float humidity = dht.readHumidity();
+  float airTemp = dht.readTemperature();
+
+  float phValue = readPH();
+
+  waterSensor.requestTemperatures();
+  float waterTemp = waterSensor.getTempCByIndex(0);
+
+  bool dhtError = isnan(humidity) || isnan(airTemp);
+  bool waterError = (waterTemp == -127.0);
+
+  if(dhtError) {
+    Serial.println("[ERROR] DHT22 NOT DETECTED");
+    alarmBeep();
+  }
+
+  if(waterError) {
+    Serial.println("[ERROR] DS18B20 NOT DETECTED");
+    alarmBeep();
+  }
+
+  // SERIAL OUTPUT
+  Serial.println("--------------------------------");
+
+  if(!dhtError) {
+    Serial.print("Air Temp: ");
+    Serial.print(airTemp);
+    Serial.println(" C");
+
+    Serial.print("Humidity: ");
+    Serial.print(humidity);
+    Serial.println(" %");
+  }
+
+  Serial.print("pH: ");
+  Serial.println(phValue, 2);
+
+  if(!waterError) {
+    Serial.print("Water Temp: ");
+    Serial.print(waterTemp);
+    Serial.println(" C");
+  }
+
+  // PAGE SWITCH
+  if(millis() - lastScreenSwitch > 5000) {
+    page = !page;
+    lastScreenSwitch = millis();
+  }
+
+  display.clearDisplay();
+  display.setTextColor(SH110X_WHITE);
+
+  if(!page) {
+
+    display.setTextSize(1);
+
+    display.setCursor(0,0);
+    display.println("SMART WATER MONITOR");
+
+    display.setCursor(0,15);
+    display.print("Air:");
+    if(dhtError)
+      display.print(" ERROR");
+    else {
+      display.print(airTemp,1);
+      display.print("C");
+    }
+
+    display.setCursor(0,30);
+    display.print("Hum:");
+    if(dhtError)
+      display.print(" ERROR");
+    else {
+      display.print(humidity,0);
+      display.print("%");
+    }
+
+    display.setCursor(0,45);
+    display.print("pH:");
+    display.print(phValue,2);
+  }
+
+  else {
+
+    display.setTextSize(1);
+
+    display.setCursor(0,0);
+    display.println("SYSTEM STATUS");
+
+    display.setCursor(0,18);
+    display.print("Water:");
+
+    if(waterError)
+      display.print(" ERROR");
+    else {
+      display.print(waterTemp,1);
+      display.print("C");
+    }
+
+    display.setCursor(0,38);
+
+    if(!dhtError && !waterError)
+      display.println("ALL SENSORS OK");
+    else
+      display.println("CHECK SENSOR");
+
+    display.setCursor(0,54);
+    display.print("ESP32 RUNNING");
+  }
+
+  display.display();
+
+  delay(2000);
+}
